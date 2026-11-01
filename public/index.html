@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Мой Telegram</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+body { background:#0e0e0e; color:#fff; height:100vh; overflow:hidden; }
+.app { max-width:450px; height:100vh; margin:0 auto; background:#0e0e0e; position:relative; display:flex; flex-direction:column; }
+
+.screen { display:none; flex-direction:column; height:100%; }
+.screen.active { display:flex; }
+
+.header { height:56px; padding:0 16px; display:flex; align-items:center; gap:12px; background:#1c1c1e; }
+.header h1 { font-size:20px; font-weight:600; flex:1; }
+
+.list { flex:1; overflow-y:auto; }
+.chat-item { display:flex; align-items:center; padding:14px 16px; gap:14px; border-bottom:1px solid #2c2c2e; cursor:pointer; }
+.chat-item:active { background:#2c2c2e; }
+.avatar { width:50px; height:50px; border-radius:50%; background:#007aff; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:600; flex-shrink:0; }
+.chat-info { flex:1; min-width:0; }
+.chat-name { font-size:16px; font-weight:500; }
+.chat-last { font-size:14px; color:#8e8e93; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.bottom-nav { height:60px; background:#1c1c1e; display:flex; border-top:1px solid #2c2c2e; }
+.nav-btn { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; background:none; border:none; color:#8e8e93; font-size:11px; }
+.nav-btn.active { color:#007aff; }
+
+.chat-screen { display:none; flex-direction:column; position:absolute; inset:0; background:#0e0e0e; z-index:50; }
+.chat-screen.active { display:flex; }
+.chat-header { height:56px; background:#1c1c1e; display:flex; align-items:center; padding:0 12px; gap:10px; }
+.chat-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:8px; }
+.message { max-width:75%; padding:10px 14px; border-radius:16px; font-size:15px; line-height:1.4; }
+.message.out { background:#2b5278; align-self:flex-end; border-bottom-right-radius:4px; }
+.message.in { background:#1c1c1e; align-self:flex-start; border-bottom-left-radius:4px; }
+.chat-input { background:#1c1c1e; padding:10px; display:flex; gap:10px; }
+.chat-input input { flex:1; background:#2c2c2e; border:none; border-radius:20px; padding:12px 16px; color:#fff; font-size:15px; outline:none; }
+.send-btn { width:42px; height:42px; background:#007aff; border:none; border-radius:50%; color:#fff; font-size:18px; }
+
+.login-box { max-width:360px; margin:80px auto; padding:30px; background:#1c1c1e; border-radius:16px; }
+.login-box input { width:100%; padding:14px; margin-bottom:12px; border:none; border-radius:10px; background:#2c2c2e; color:#fff; font-size:16px; }
+.login-box button { width:100%; padding:14px; border:none; border-radius:10px; background:#007aff; color:#fff; font-size:16px; font-weight:600; margin-bottom:10px; }
+.tabs { display:flex; margin-bottom:20px; }
+.tabs button { flex:1; padding:10px; background:none; border:none; color:#8e8e93; font-size:15px; }
+.tabs button.active { color:#007aff; border-bottom:2px solid #007aff; }
+
+.admin-panel { display:none; flex-direction:column; position:absolute; inset:0; background:#0e0e0e; z-index:100; }
+.admin-panel.active { display:flex; }
+.admin-content { flex:1; overflow-y:auto; padding:16px; }
+.admin-section { background:#1c1c1e; border-radius:14px; padding:16px; margin-bottom:14px; }
+.admin-section h3 { color:#007aff; margin-bottom:12px; }
+.admin-input { width:100%; background:#2c2c2e; border:none; border-radius:10px; padding:12px; color:#fff; margin-bottom:10px; }
+.admin-btn { width:100%; background:#007aff; border:none; border-radius:10px; padding:12px; color:#fff; margin-bottom:8px; }
+.stars-big { font-size:28px; color:#ffd700; text-align:center; margin:10px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ЭКРАН ВХОДА -->
+  <div class="screen active" id="screen-login">
+    <div class="login-box">
+      <h2 style="text-align:center;margin-bottom:20px">Мой Telegram</h2>
+      <div class="tabs">
+        <button class="active" onclick="showLoginTab()">Вход</button>
+        <button onclick="showRegisterTab()">Регистрация</button>
+      </div>
+      <div id="login-form">
+        <input type="text" id="login-user" placeholder="Логин">
+        <input type="password" id="login-pass" placeholder="Пароль">
+        <button onclick="doLogin()">Войти</button>
+      </div>
+      <div id="register-form" style="display:none">
+        <input type="text" id="reg-user" placeholder="Логин (мин. 3 символа)">
+        <input type="text" id="reg-name" placeholder="Имя">
+        <input type="password" id="reg-pass" placeholder="Пароль">
+        <button onclick="doRegister()">Зарегистрироваться</button>
+      </div>
+      <p style="text-align:center;color:#8e8e93;font-size:13px;margin-top:15px">Админ: admin / admin123</p>
+    </div>
+  </div>
+
+  <!-- ЧАТЫ -->
+  <div class="screen" id="screen-chats">
+    <div class="header">
+      <h1>Чаты</h1>
+      <button onclick="openAdmin()" style="background:none;border:none;color:#fff;font-size:18px">🛠️</button>
+    </div>
+    <div class="list" id="chats-list"></div>
+    <div class="bottom-nav">
+      <button class="nav-btn active">Чаты</button>
+      <button class="nav-btn" onclick="alert('Скоро')">Контакты</button>
+      <button class="nav-btn" onclick="logout()">Выйти</button>
+    </div>
+  </div>
+
+  <!-- ЭКРАН ЧАТА -->
+  <div class="chat-screen" id="chat-screen">
+    <div class="chat-header">
+      <button onclick="closeChat()" style="background:none;border:none;color:#fff;font-size:20px">←</button>
+      <div class="avatar" id="chat-avatar" style="width:40px;height:40px;font-size:16px"></div>
+      <div style="flex:1">
+        <div id="chat-name" style="font-weight:500"></div>
+        <div id="chat-status" style="font-size:13px;color:#8e8e93">в сети</div>
+      </div>
+    </div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-input">
+      <input type="text" id="message-input" placeholder="Сообщение" onkeydown="if(event.key==='Enter')sendMessage()">
+      <button class="send-btn" onclick="sendMessage()">➤</button>
+    </div>
+  </div>
+
+  <!-- АДМИН ПАНЕЛЬ -->
+  <div class="admin-panel" id="admin-panel">
+    <div class="header">
+      <button onclick="closeAdmin()" style="background:none;border:none;color:#fff;font-size:20px">←</button>
+      <h1>Админ-панель</h1>
+    </div>
+    <div class="admin-content">
+      <div class="admin-section">
+        <h3>⭐ Мои звёзды</h3>
+        <div class="stars-big" id="my-stars">0 ⭐</div>
+        <input class="admin-input" id="stars-amount" type="number" value="100" placeholder="Количество">
+        <button class="admin-btn" onclick="giveMeStars()">Выдать себе</button>
+      </div>
+      <div class="admin-section">
+        <h3>Выдать другому</h3>
+        <input class="admin-input" id="give-user-id" type="number" placeholder="ID пользователя">
+        <input class="admin-input" id="give-amount" type="number" value="50" placeholder="Количество звёзд">
+        <button class="admin-btn" onclick="giveStarsToUser()">Выдать</button>
+      </div>
+      <div class="admin-section">
+        <h3>Список пользователей</h3>
+        <div id="users-list" style="font-size:14px;line-height:1.8;color:#aaa"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let me = null;
+let currentChatUser = null;
+let socket = null;
+let users = [];
+
+function showLoginTab() {
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('register-form').style.display = 'none';
+  document.querySelectorAll('.tabs button')[0].classList.add('active');
+  document.querySelectorAll('.tabs button')[1].classList.remove('active');
+}
+function showRegisterTab() {
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('register-form').style.display = 'block';
+  document.querySelectorAll('.tabs button')[0].classList.remove('active');
+  document.querySelectorAll('.tabs button')[1].classList.add('active');
+}
+
+async function doLogin() {
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value;
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ username, password })
+  });
+  const data = await res.json();
+  if (data.error) return alert(data.error);
+  afterLogin();
+}
+
+async function doRegister() {
+  const username = document.getElementById('reg-user').value.trim();
+  const name = document.getElementById('reg-name').value.trim();
+  const password = document.getElementById('reg-pass').value;
+  const res = await fetch('/api/register', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ username, password, name })
+  });
+  const data = await res.json();
+  if (data.error) return alert(data.error);
+  afterLogin();
+}
+
+async function afterLogin() {
+  const res = await fetch('/api/me');
+  me = await res.json();
+  document.getElementById('screen-login').classList.remove('active');
+  document.getElementById('screen-chats').classList.add('active');
+  
+  socket = io();
+  socket.emit('join', me.id);
+  socket.on('new_message', (msg) => {
+    if (currentChatUser && currentChatUser.id === msg.from_id) {
+      addMessageToChat(msg.text, false);
+    }
+    loadUsers();
+  });
+  
+  loadUsers();
+}
+
+async function loadUsers() {
+  const res = await fetch('/api/users');
+  users = await res.json();
+  const list = document.getElementById('chats-list');
+  list.innerHTML = users.map(u => `
+    <div class="chat-item" onclick="openChat(${u.id})">
+      <div class="avatar">${u.name[0].toUpperCase()}</div>
+      <div class="chat-info">
+        <div class="chat-name">\( {u.name} <span style="color:#8e8e93;font-size:13px">@ \){u.username}</span></div>
+        <div class="chat-last">ID: ${u.id} • ⭐ ${u.stars}</div>
+      </div>
+    </div>
+  `).join('');
+  
+  // для админки
+  document.getElementById('users-list').innerHTML = users.map(u => 
+    `ID ${u.id}: \( {u.name} (@ \){u.username}) — ${u.stars} ⭐`
+  ).join('<br>');
+}
+
+async function openChat(userId) {
+  currentChatUser = users.find(u => u.id === userId);
+  document.getElementById('chat-name').textContent = currentChatUser.name;
+  document.getElementById('chat-avatar').textContent = currentChatUser.name[0].toUpperCase();
+  document.getElementById('chat-screen').classList.add('active');
+  
+  const res = await fetch('/api/messages/' + userId);
+  const messages = await res.json();
+  const box = document.getElementById('chat-messages');
+  box.innerHTML = '';
+  messages.forEach(m => {
+    addMessageToChat(m.text, m.from_id === me.id);
+  });
+}
+
+function addMessageToChat(text, isOut) {
+  const box = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'message ' + (isOut ? 'out' : 'in');
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function closeChat() {
+  document.getElementById('chat-screen').classList.remove('active');
+  currentChatUser = null;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('message-input');
+  const text = input.value.trim();
+  if (!text || !currentChatUser) return;
+  
+  await fetch('/api/message', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ to_id: currentChatUser.id, text })
+  });
+  
+  addMessageToChat(text, true);
+  input.value = '';
+}
+
+function openAdmin() {
+  if (!me.is_admin) return alert('Только для админа');
+  document.getElementById('my-stars').textContent = me.stars + ' ⭐';
+  document.getElementById('admin-panel').classList.add('active');
+}
+function closeAdmin() {
+  document.getElementById('admin-panel').classList.remove('active');
+}
+
+async function giveMeStars() {
+  const amount = parseInt(document.getElementById('stars-amount').value) || 0;
+  const res = await fetch('/api/admin/give-me-stars', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ amount })
+  });
+  const data = await res.json();
+  if (data.error) return alert(data.error);
+  me.stars = data.stars;
+  document.getElementById('my-stars').textContent = me.stars + ' ⭐';
+  alert('Готово! Теперь у тебя ' + me.stars + ' ⭐');
+}
+
+async function giveStarsToUser() {
+  const user_id = parseInt(document.getElementById('give-user-id').value);
+  const amount = parseInt(document.getElementById('give-amount').value) || 0;
+  if (!user_id) return alert('Введи ID');
+  
+  const res = await fetch('/api/admin/give-stars', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ user_id, amount })
+  });
+  const data = await res.json();
+  if (data.error) return alert(data.error);
+  alert(`Выдано ${amount} ⭐ пользователю ${data.username}. Новый баланс: ${data.new_balance}`);
+  loadUsers();
+}
+
+async function logout() {
+  await fetch('/api/logout', { method: 'POST' });
+  location.reload();
+}
+
+// Проверяем, залогинен ли уже
+fetch('/api/me').then(r => {
+  if (r.ok) afterLogin();
+});
+</script>
+</body>
+      </html>
